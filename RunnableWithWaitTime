@@ -1,0 +1,64 @@
+/*the implementation uses std::thread instead of std::async for more control over asynchronous execution. 
+It introduces a std::condition_variable and a flag for signaling completion between threads. The main thread can optionally wait for the asynchronous task to complete using the condition variable.
+*/
+
+#include <iostream>
+#include <functional>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+class AsyncRunner {
+public:
+    template<typename F>
+    static void runAsync(const F& runnable, const std::chrono::milliseconds& waitTime) {
+        // Create a condition variable and a flag
+        std::condition_variable cv;
+        bool executed = false;
+
+        // Launch a thread to execute the function
+        std::thread([=, &cv, &executed]() {
+            // Sleep for the specified wait time
+            std::this_thread::sleep_for(waitTime);
+
+            // Execute the provided function
+            runnable();
+
+            // Set the flag to true and notify the waiting thread
+            executed = true;
+            cv.notify_one();
+        }).detach();
+
+        // Main thread continues without waiting for the async operation to complete
+
+        // Optionally, wait for the asynchronous operation to complete
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv.wait(lock, [&executed] { return executed; });
+    }
+
+private:
+    static std::mutex mutex_;
+};
+
+std::mutex AsyncRunner::mutex_;
+
+int main() {
+    // Example usage:
+    std::cout << "Main thread started.\n";
+
+    // Define a lambda function to run
+    auto myRunnable = []() {
+        std::cout << "Runnable executed!\n";
+    };
+
+    // Invoke the interface with the function and wait time
+    AsyncRunner::runAsync(myRunnable, std::chrono::seconds(2));
+
+    // Main thread continues without waiting for the async operation to complete
+    std::cout << "Main thread continued.\n";
+
+    // Main thread exits without explicit synchronization
+
+    std::cout << "Main thread exiting.\n";
+    return 0;
+}
