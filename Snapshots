@@ -1,0 +1,98 @@
+#include <iostream>
+#include <unordered_map>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <chrono>
+
+class KeyValueStore {
+private:
+    std::unordered_map<std::string, std::string> data;
+    std::vector<std::unordered_map<std::string, std::string>> snapshots;
+    std::mutex dataMutex;
+    std::condition_variable snapshotCondition;
+
+public:
+    void set(const std::string& key, const std::string& value) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        data[key] = value;
+    }
+
+    std::string get(const std::string& key, size_t snapshot = 0) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        if (snapshot == 0) {
+            return data[key];
+        } else {
+            for (auto it = snapshots.rbegin(); it != snapshots.rend(); ++it) {
+                if (snapshot >= it->at("timestamp")) {
+                    auto snapshotData = it->find(key);
+                    return (snapshotData != it->end()) ? snapshotData->second : "";
+                }
+            }
+            return ""; // Key not found in any snapshot
+        }
+    }
+
+    void del(const std::string& key) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        data.erase(key);
+    }
+
+    size_t takeSnapshot() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        std::unordered_map<std::string, std::string> snapshotData = data;
+        size_t timestamp = snapshots.size() + 1;
+        snapshots.push_back({{"timestamp", std::to_string(timestamp)}, {"data", ""}});
+        snapshots.back()["data"] = std::move(snapshotData);
+        snapshotCondition.notify_all();
+        return timestamp;
+    }
+
+    void deleteSnapshot() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        if (!snapshots.empty()) {
+            snapshots.pop_back();
+        }
+    }
+
+    void printData() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        std::cout << "Current Data: {";
+        for (const auto& entry : data) {
+            std::cout << entry.first << ": " << entry.second << ", ";
+        }
+        std::cout << "}" << std::endl;
+    }
+};
+
+// Example Usage
+int main() {
+    KeyValueStore kvStore;
+
+    kvStore.set("name", "John");
+    kvStore.set("age", "25");
+    kvStore.printData();
+
+    size_t snapshot1 = kvStore.takeSnapshot();
+
+    kvStore.set("city", "New York");
+    kvStore.del("age");
+    kvStore.printData();
+
+    size_t snapshot2 = kvStore.takeSnapshot();
+
+    kvStore.set("country", "USA");
+    kvStore.printData();
+
+    // Reading from snapshots
+    std::cout << "Value for 'name' in snapshot 1: " << kvStore.get("name", snapshot1) << std::endl;
+    std::cout << "Value for 'age' in snapshot 1: " << kvStore.get("age", snapshot1) << std::endl;
+    std::cout << "Value for 'name' in snapshot 2: " << kvStore.get("name", snapshot2) << std::endl;
+    std::cout << "Value for 'city' in snapshot 2: " << kvStore.get("city", snapshot2) << std::endl;
+
+    // Deleting snapshots
+    kvStore.deleteSnapshot();
+    kvStore.printData();
+
+    return 0;
+}
