@@ -1,4 +1,10 @@
 /**
+The topic requires the use of multi-threaded crawlers, otherwise it will time out.
+
+Use set to store crawled web pages. This set needs to support multi-threaded concurrent modification. I use using std::unordered_map with a std::mutex for synchronization
+As long as the list of stored results supports multi-thread concurrency, I use std::vector with a std::mutex for synchronization. 
+
+
  * // This is the HtmlParser's API interface.
  * // You should not implement it, or speculate about its implementation
  * class HtmlParser {
