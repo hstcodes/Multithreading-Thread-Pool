@@ -1,0 +1,80 @@
+/*Implement a thread-safe data structure which can keep track of number of incoming
+requests grouped by IP Address over a time window. Add support for grouping by other
+attributes such as BrowserAgent.*/
+
+
+#include <iostream>
+#include <unordered_map>
+#include <mutex>
+#include <chrono>
+#include <ctime>
+#include <vector>
+
+class RequestTracker {
+public:
+    // Constructor
+    RequestTracker(std::chrono::seconds timeWindow) : timeWindow(timeWindow) {}
+
+    // Function to add a request
+    void addRequest(const std::string& ipAddress, const std::string& browserAgent) {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        cleanupExpiredRequests();
+
+        std::string key = getKey(ipAddress, browserAgent);
+        requests[key]++;
+    }
+
+    // Function to get request count for a specific group
+    int getRequestCount(const std::string& ipAddress, const std::string& browserAgent) {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        cleanupExpiredRequests();
+
+        std::string key = getKey(ipAddress, browserAgent);
+        return requests[key];
+    }
+
+private:
+    // Helper function to generate a key based on IP Address and Browser Agent
+    std::string getKey(const std::string& ipAddress, const std::string& browserAgent) {
+        return ipAddress + "|" + browserAgent;
+    }
+
+    // Helper function to cleanup expired requests
+    void cleanupExpiredRequests() {
+        auto currentTime = std::chrono::system_clock::now();
+        auto cutoffTime = currentTime - timeWindow;
+
+        for (auto it = requests.begin(); it != requests.end();) {
+            auto timestamp = it->second;
+            if (timestamp < cutoffTime) {
+                it = requests.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+private:
+    std::mutex mutex_;
+    std::unordered_map<std::string, int> requests; // Key: IP Address + Browser Agent, Value: Request Count
+    std::chrono::seconds timeWindow;
+};
+
+int main() {
+    RequestTracker tracker(std::chrono::seconds(60)); // Time window of 60 seconds
+
+    // Simulate incoming requests
+    tracker.addRequest("192.168.1.1", "Chrome");
+    tracker.addRequest("192.168.1.2", "Firefox");
+    tracker.addRequest("192.168.1.1", "Chrome");
+    tracker.addRequest("192.168.1.3", "Safari");
+
+    // Get request counts
+    std::cout << "Requests from IP 192.168.1.1 (Chrome): " << tracker.getRequestCount("192.168.1.1", "Chrome") << std::endl;
+    std::cout << "Requests from IP 192.168.1.2 (Firefox): " << tracker.getRequestCount("192.168.1.2", "Firefox") << std::endl;
+    std::cout << "Requests from IP 192.168.1.3 (Safari): " << tracker.getRequestCount("192.168.1.3", "Safari") << std::endl;
+
+    return 0;
+}
