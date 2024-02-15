@@ -1,0 +1,140 @@
+/*
+If you need more fine-grained control over threading and resource utilization, 
+a custom thread pool might be preferable. If simplicity and ease of use are priorities, 
+std::async can be a suitable choice.
+*/
+
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
+#include <algorithm>
+
+const int block_size = 1024 * 1024; // 1 MB block size, adjust based on your requirements
+
+class ThreadPool {
+public:
+    explicit ThreadPool(std::size_t numThreads) : stop(false) {
+        for (std::size_t i = 0; i < numThreads; ++i) {
+            workers.emplace_back([this] {
+                while (true) {
+                    std::function<void()> task;
+
+                    {
+                        std::unique_lock<std::mutex> lock(queueMutex);
+                        condition.wait(lock, [this] { return stop || !tasks.empty(); });
+
+                        if (stop && tasks.empty()) {
+                            return;
+                        }
+
+                        task = std::move(tasks.front());
+                        tasks.pop();
+                    }
+
+                    task();
+                }
+            });
+        }
+    }
+
+    ~ThreadPool() {
+        {
+            std::unique_lock<std::mutex> lock(queueMutex);
+            stop = true;
+        }
+
+        condition.notify_all();
+
+        for (std::thread& worker : workers) {
+            worker.join();
+        }
+    }
+
+    template <class F, class... Args>
+    void enqueue(F&& f, Args&&... args) {
+        {
+            std::unique_lock<std::mutex> lock(queueMutex);
+            tasks.emplace([f = std::forward<F>(f), args = std::make_tuple(std::forward<Args>(args)...)] {
+                std::apply(f, args);
+            });
+        }
+
+        condition.notify_one();
+    }
+
+private:
+    std::vector<std::thread> workers;
+    std::queue<std::function<void()>> tasks;
+    std::mutex queueMutex;
+    std::condition_variable condition;
+    bool stop;
+};
+
+void readFileBlock(const std::string& fileName, std::size_t start, std::size_t end, std::vector<char>& buffer) {
+    std::ifstream file(fileName, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error opening file: " << fileName << std::endl;
+        return;
+    }
+
+    file.seekg(start);
+    buffer.resize(end - start);
+    file.read(buffer.data(), buffer.size());
+}
+
+void simulateNetworkTransmission(const std::vector<char>& buffer) {
+    // Simulate network transmission by sleeping
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // TODO: Code to send buffer over the network goes here
+}
+
+void sendBlock(const std::string& fileName, std::size_t start, std::size_t end) {
+    std::vector<char> buffer;
+    readFileBlock(fileName, start, end, buffer);
+    simulateNetworkTransmission(buffer);
+    std::cout << "Transmitted block from " << start << " to " << end << std::endl;
+}
+
+void processFileInThreadPool(const std::string& fileName, ThreadPool& pool) {
+    std::ifstream file(fileName, std::ios::binary | std::ios::ate);
+
+    if (!file) {
+        std::cerr << "Error opening file: " << fileName << std::endl;
+        return;
+    }
+
+    std::size_t fileSize = file.tellg();
+    std::size_t numBlocks = fileSize / block_size;
+
+    for (std::size_t i = 0; i < numBlocks; ++i) {
+        std::size_t start = i * block_size;
+        std::size_t end = (i + 1) * block_size;
+
+        pool.enqueue(sendBlock, fileName, start, end);
+    }
+
+    if (fileSize % block_size != 0) {
+        std::size_t start = numBlocks * block_size;
+        std::size_t end = fileSize;
+        pool.enqueue(sendBlock, fileName, start, end);
+    }
+}
+
+int main() {
+    std::string fileName = "your_large_file.dat"; // Replace with your file name
+    std::size_t numThreads = std::thread::hardware_concurrency(); // Use the number of hardware threads available
+
+    ThreadPool pool(numThreads);
+    processFileInThreadPool(fileName, pool);
+
+    // Main thread can continue with other work while the thread pool is processing blocks
+
+    return 0;
+}
