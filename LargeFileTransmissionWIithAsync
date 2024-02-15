@@ -6,7 +6,6 @@ When you launch a task with std::async, it returns a std::future, and the associ
 
 Some implementations of std::async might reuse threads from a pool, while others might create new threads for each task.
 */
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -15,6 +14,7 @@ Some implementations of std::async might reuse threads from a pool, while others
 
 const int block_size = 1024 * 1024; // 1 MB block size, adjust based on your requirements
 
+// Function to read a specific block from the file
 void readFileBlock(const std::string& fileName, std::size_t start, std::size_t end, std::vector<char>& buffer) {
     std::ifstream file(fileName, std::ios::binary);
     if (!file) {
@@ -27,6 +27,7 @@ void readFileBlock(const std::string& fileName, std::size_t start, std::size_t e
     file.read(buffer.data(), buffer.size());
 }
 
+// Function to simulate network transmission (replace with actual networking code)
 void simulateNetworkTransmission(const std::vector<char>& buffer) {
     // Simulate network transmission by sleeping
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -34,21 +35,13 @@ void simulateNetworkTransmission(const std::vector<char>& buffer) {
     // TODO: Code to send buffer over the network goes here
 }
 
-void sendBlock(const std::string& fileName, std::size_t start, std::size_t end) {
-    std::vector<char> buffer;
-    readFileBlock(fileName, start, end, buffer);
-    simulateNetworkTransmission(buffer);
-
-    std::cout << "Transmitted block from " << start << " to " << end << std::endl;
-}
-
-int main() {
-    std::string fileName = "your_large_file.dat"; // Replace with your file name
+// Function to process the file in blocks using a simple thread pool
+void processFileInBlocks(const std::string& fileName) {
     std::ifstream file(fileName, std::ios::binary | std::ios::ate);
 
     if (!file) {
         std::cerr << "Error opening file: " << fileName << std::endl;
-        return 1;
+        return;
     }
 
     std::size_t fileSize = file.tellg();
@@ -59,18 +52,32 @@ int main() {
     for (std::size_t i = 0; i < numBlocks; ++i) {
         std::size_t start = i * block_size;
         std::size_t end = (i + 1) * block_size;
-        futures.push_back(std::async(std::launch::async, sendBlock, fileName, start, end));
+        futures.push_back(std::async(std::launch::async, [fileName, start, end] {
+            std::vector<char> buffer;
+            readFileBlock(fileName, start, end, buffer);
+            simulateNetworkTransmission(buffer);
+            std::cout << "Transmitted block from " << start << " to " << end << std::endl;
+        }));
     }
 
     // Handle the last block if file size is not a multiple of block size
     if (fileSize % block_size != 0) {
         std::size_t start = numBlocks * block_size;
         std::size_t end = fileSize;
-        futures.push_back(std::async(std::launch::async, sendBlock, fileName, start, end));
+        futures.push_back(std::async(std::launch::async, [fileName, start, end] {
+            std::vector<char> buffer;
+            readFileBlock(fileName, start, end, buffer);
+            simulateNetworkTransmission(buffer);
+            std::cout << "Transmitted block from " << start << " to " << end << std::endl;
+        }));
     }
 
     // Wait for all tasks to finish
     std::for_each(futures.begin(), futures.end(), [](std::future<void>& f) { f.get(); });
+}
 
+int main() {
+    std::string fileName = "your_large_file.dat"; // Replace with your file name
+    processFileInBlocks(fileName);
     return 0;
 }
