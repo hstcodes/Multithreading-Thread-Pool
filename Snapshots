@@ -7,24 +7,31 @@
 
 class KeyValueStore {
 private:
-    std::unordered_map<std::string, std::string> data;
-    std::vector<std::unordered_map<std::string, std::string>> snapshots;
-    std::mutex dataMutex;
-    std::condition_variable snapshotCondition;
+    std::unordered_map<std::string, std::string> data;  // Main data storage
+    std::vector<std::unordered_map<std::string, std::string>> snapshots;  // Storage for snapshots
+    std::mutex dataMutex;  // Mutex for ensuring thread safety
+    std::condition_variable snapshotCondition;  // Condition variable for synchronization
 
 public:
+    // Set key-value pair in the data
     void set(const std::string& key, const std::string& value) {
         std::unique_lock<std::mutex> lock(dataMutex);
         data[key] = value;
     }
 
+    // Get value for a key from a specified snapshot (default: latest snapshot)
     std::string get(const std::string& key, size_t snapshot = 0) {
         std::unique_lock<std::mutex> lock(dataMutex);
+
+        // If snapshot is 0, retrieve the value directly from the current data
         if (snapshot == 0) {
             return data[key];
         } else {
+            // Iterate through snapshots to find the value associated with the key
             for (auto it = snapshots.rbegin(); it != snapshots.rend(); ++it) {
-                if (snapshot >= it->at("timestamp")) {
+                // Check if the specified snapshot timestamp is greater than or equal to the snapshot's timestamp
+                if (snapshot >= std::stoul(it->at("timestamp"))) {
+                    // Find the key in the snapshot and return its value if found, otherwise return an empty string
                     auto snapshotData = it->find(key);
                     return (snapshotData != it->end()) ? snapshotData->second : "";
                 }
@@ -33,21 +40,28 @@ public:
         }
     }
 
+    // Delete key from the data
     void del(const std::string& key) {
         std::unique_lock<std::mutex> lock(dataMutex);
         data.erase(key);
     }
 
+    // Take a snapshot of the current data
     size_t takeSnapshot() {
         std::unique_lock<std::mutex> lock(dataMutex);
         std::unordered_map<std::string, std::string> snapshotData = data;
         size_t timestamp = snapshots.size() + 1;
+
+        // Create a new snapshot and store the timestamp and snapshot data
         snapshots.push_back({{"timestamp", std::to_string(timestamp)}, {"data", ""}});
         snapshots.back()["data"] = std::move(snapshotData);
+
+        // Notify waiting threads that a new snapshot is available
         snapshotCondition.notify_all();
         return timestamp;
     }
 
+    // Delete the latest snapshot
     void deleteSnapshot() {
         std::unique_lock<std::mutex> lock(dataMutex);
         if (!snapshots.empty()) {
@@ -55,6 +69,7 @@ public:
         }
     }
 
+    // Print the current data
     void printData() {
         std::unique_lock<std::mutex> lock(dataMutex);
         std::cout << "Current Data: {";
@@ -69,28 +84,31 @@ public:
 int main() {
     KeyValueStore kvStore;
 
+    // Set initial key-value pairs
     kvStore.set("name", "John");
     kvStore.set("age", "25");
     kvStore.printData();
 
+    // Take the first snapshot
     size_t snapshot1 = kvStore.takeSnapshot();
 
+    // Modify data and take the second snapshot
     kvStore.set("city", "New York");
     kvStore.del("age");
     kvStore.printData();
-
     size_t snapshot2 = kvStore.takeSnapshot();
 
+    // Modify data and print the current data
     kvStore.set("country", "USA");
     kvStore.printData();
 
-    // Reading from snapshots
+    // Read values from snapshots
     std::cout << "Value for 'name' in snapshot 1: " << kvStore.get("name", snapshot1) << std::endl;
     std::cout << "Value for 'age' in snapshot 1: " << kvStore.get("age", snapshot1) << std::endl;
     std::cout << "Value for 'name' in snapshot 2: " << kvStore.get("name", snapshot2) << std::endl;
     std::cout << "Value for 'city' in snapshot 2: " << kvStore.get("city", snapshot2) << std::endl;
 
-    // Deleting snapshots
+    // Delete the latest snapshot and print the current data
     kvStore.deleteSnapshot();
     kvStore.printData();
 
