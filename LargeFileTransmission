@@ -1,3 +1,9 @@
+/*The program calculates the size of the file, divides it into blocks of a specified size (block_size), 
+and launches threads to process each block. The threads, upon receiving a signal, read their assigned block from the file, 
+simulate network transmission with a sleep (replace this with actual networking code), and notify the main thread upon completion.
+
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -6,11 +12,11 @@
 #include <condition_variable>
 #include <algorithm>
 
-const int block_size = 1024 * 1024; // 1 MB block size, you can adjust this based on your requirements
+const int block_size = 1024 * 1024; // 1 MB block size, adjust based on your requirements
 
-std::mutex mtx;
-std::condition_variable cv;
-bool isReady = false;
+std::mutex mtx;                   // Mutex for synchronizing access to shared data
+std::condition_variable cv;       // Condition variable for signaling between threads
+bool isReady = false;              // Shared flag indicating whether a block is ready to be sent
 
 void sendBlock(const std::string& fileName, std::size_t start, std::size_t end) {
     std::unique_lock<std::mutex> lock(mtx);
@@ -29,10 +35,9 @@ void sendBlock(const std::string& fileName, std::size_t start, std::size_t end) 
     file.read(buffer.data(), buffer.size());
 
     // Simulate network transmission by sleeping
-    // In a real implementation, you would use a networking library or API
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    // Code to send buffer over the network
+    // TODO: Code to send buffer over the network goes here
 
     std::cout << "Transmitted block from " << start << " to " << end << std::endl;
 
