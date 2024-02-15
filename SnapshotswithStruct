@@ -1,0 +1,113 @@
+#include <iostream>
+#include <unordered_map>
+#include <mutex>
+#include <condition_variable>
+#include <vector>
+#include <string>
+
+// Struct to represent a snapshot with timestamp and data
+struct Snapshot {
+    std::string timestamp;
+    std::unordered_map<std::string, std::string> data;
+};
+
+class KeyValueStore {
+private:
+    std::unordered_map<std::string, std::string> data;
+    std::vector<Snapshot> snapshots;
+    std::mutex dataMutex;
+    std::condition_variable snapshotCondition;
+
+public:
+    // Set key-value pair in the data
+    void set(const std::string& key, const std::string& value) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        data[key] = value;
+    }
+
+    // Get value for a key from a specified snapshot (default: latest snapshot)
+    std::string get(const std::string& key, size_t snapshot = 0) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        if (snapshot == 0) {
+            return data[key];
+        } else {
+            for (auto it = snapshots.rbegin(); it != snapshots.rend(); ++it) {
+                if (snapshot >= std::stoul(it->timestamp)) {
+                    auto snapshotData = it->data.find(key);
+                    return (snapshotData != it->data.end()) ? snapshotData->second : "";
+                }
+            }
+            return ""; // Key not found in any snapshot
+        }
+    }
+
+    // Delete key from the data
+    void del(const std::string& key) {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        data.erase(key);
+    }
+
+    // Take a snapshot of the current data
+    size_t takeSnapshot() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        Snapshot snapshot;
+        snapshot.timestamp = std::to_string(snapshots.size() + 1);
+        snapshot.data = data;
+        snapshots.push_back(std::move(snapshot));
+        snapshotCondition.notify_all();
+        return snapshots.size();
+    }
+
+    // Delete the latest snapshot
+    void deleteSnapshot() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        if (!snapshots.empty()) {
+            snapshots.pop_back();
+        }
+    }
+
+    // Print the current data
+    void printData() {
+        std::unique_lock<std::mutex> lock(dataMutex);
+        std::cout << "Current Data: {";
+        for (const auto& entry : data) {
+            std::cout << entry.first << ": " << entry.second << ", ";
+        }
+        std::cout << "}" << std::endl;
+    }
+};
+
+// Example Usage
+int main() {
+    KeyValueStore kvStore;
+
+    // Set initial key-value pairs
+    kvStore.set("name", "John");
+    kvStore.set("age", "25");
+    kvStore.printData();
+
+    // Take the first snapshot
+    size_t snapshot1 = kvStore.takeSnapshot();
+
+    // Modify data and take the second snapshot
+    kvStore.set("city", "New York");
+    kvStore.del("age");
+    kvStore.printData();
+    size_t snapshot2 = kvStore.takeSnapshot();
+
+    // Modify data and print the current data
+    kvStore.set("country", "USA");
+    kvStore.printData();
+
+    // Read values from snapshots
+    std::cout << "Value for 'name' in snapshot 1: " << kvStore.get("name", snapshot1) << std::endl;
+    std::cout << "Value for 'age' in snapshot 1: " << kvStore.get("age", snapshot1) << std::endl;
+    std::cout << "Value for 'name' in snapshot 2: " << kvStore.get("name", snapshot2) << std::endl;
+    std::cout << "Value for 'city' in snapshot 2: " << kvStore.get("city", snapshot2) << std::endl;
+
+    // Delete the latest snapshot and print the current data
+    kvStore.deleteSnapshot();
+    kvStore.printData();
+
+    return 0;
+}
