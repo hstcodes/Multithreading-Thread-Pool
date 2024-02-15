@@ -3,7 +3,6 @@ schedule() should enqueue work to be performed and should be non-blocking.
 waitUntilComplete() should block the call untill all scheduled work is completed.
 
 Builtin thread safe constructs like Deque, BlockingQueue, etc. can't be used. Implement it using locks, etc ensuring thread safety.*/
-
 #include <iostream>
 #include <vector>
 #include <thread>
@@ -15,23 +14,30 @@ Builtin thread safe constructs like Deque, BlockingQueue, etc. can't be used. Im
 class ThreadPool {
 public:
     ThreadPool(size_t numThreads) : stop(false) {
+        // Initialize the thread pool with the given number of threads
         for (size_t i = 0; i < numThreads; ++i) {
             threads.emplace_back([this] {
                 while (true) {
                     std::function<void()> task;
 
                     {
+                        // Lock the queue to safely access and modify tasks
                         std::unique_lock<std::mutex> lock(queueMutex);
+                        
+                        // Wait until there is a task to process or the pool is stopped
                         condition.wait(lock, [this] { return stop || !tasks.empty(); });
 
+                        // If the pool is stopped and there are no tasks, exit the thread
                         if (stop && tasks.empty()) {
                             return;
                         }
 
+                        // Retrieve the task from the front of the queue
                         task = std::move(tasks.front());
                         tasks.pop();
                     }
 
+                    // Execute the task
                     task();
                 }
             });
@@ -39,41 +45,53 @@ public:
     }
 
     ~ThreadPool() {
+        // Stop the thread pool gracefully
         {
             std::unique_lock<std::mutex> lock(queueMutex);
             stop = true;
         }
 
+        // Notify all threads to wake up and exit
         condition.notify_all();
 
+        // Join all threads to ensure a clean shutdown
         for (std::thread &worker : threads) {
             worker.join();
         }
     }
 
+    // Schedule a task to be executed by the thread pool
     template <typename F, typename... Args>
     void schedule(F&& f, Args&&... args) {
         auto task = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
 
         {
+            // Lock the queue to safely add the task
             std::unique_lock<std::mutex> lock(queueMutex);
+            
+            // Enqueue the task into the tasks queue
             tasks.emplace([task]() { task(); });
         }
 
+        // Notify one waiting thread to start processing the task
         condition.notify_one();
     }
 
+    // Wait until all scheduled tasks are completed
     void waitUntilComplete() {
+        // Lock the queue to safely check for task completion
         std::unique_lock<std::mutex> lock(queueMutex);
+        
+        // Wait until the tasks queue is empty
         condition.wait(lock, [this] { return tasks.empty(); });
     }
 
 private:
-    std::vector<std::thread> threads;
-    std::queue<std::function<void()>> tasks;
-    std::mutex queueMutex;
-    std::condition_variable condition;
-    bool stop;
+    std::vector<std::thread> threads;                   // Container for worker threads
+    std::queue<std::function<void()>> tasks;            // Queue to store scheduled tasks
+    std::mutex queueMutex;                              // Mutex to ensure thread-safe access to the queue
+    std::condition_variable condition;                  // Condition variable for synchronization
+    bool stop;                                          // Flag to indicate if the thread pool is stopped
 };
 
 // Example usage
@@ -84,12 +102,15 @@ void someTask(int id) {
 }
 
 int main() {
+    // Create a thread pool with 4 worker threads
     ThreadPool pool(4);
 
+    // Schedule 10 tasks to the thread pool
     for (int i = 0; i < 10; ++i) {
         pool.schedule(someTask, i);
     }
 
+    // Wait until all tasks are completed
     pool.waitUntilComplete();
 
     std::cout << "All tasks completed" << std::endl;
