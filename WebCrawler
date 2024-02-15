@@ -12,64 +12,100 @@ As long as the list of stored results supports multi-thread concurrency, I use s
  *   vector<string> getUrls(string url);
  * };
  */
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <vector>
+#include <queue>
+#include <unordered_set>
+#include <string>
+
+using namespace std;
+
+class HtmlParser {
+public:
+    vector<string> getUrls(string url);
+    // Assume other necessary members and methods
+};
 
 class Solution {
- public:
-  vector<string> crawl(string startUrl, HtmlParser htmlParser) {
-    queue<string> q{ {startUrl} };
-    unordered_set<string> seen{ {startUrl} };
-    const string& hostname = getHostname(startUrl);
+public:
+    vector<string> crawl(string startUrl, HtmlParser htmlParser) {
+        // Queue to manage URLs to be crawled
+        queue<string> q{ {startUrl} };
 
-    // Threading
-    const int nThreads = std::thread::hardware_concurrency();
-    vector<thread> threads;
-    std::mutex mtx;
-    std::condition_variable cv;
+        // Set to store crawled web pages, with synchronization using a mutex
+        unordered_set<string> seen{ {startUrl} };
 
-    auto t = [&]() {
-      while (true) {
-        unique_lock<mutex> lock(mtx);
-        cv.wait_for(lock, 30ms, [&]() { return q.size(); });
+        // Extracting hostname from the start URL
+        const string& hostname = getHostname(startUrl);
 
-        if (q.empty())
-          return;
+        // Threading
+        const int nThreads = std::thread::hardware_concurrency();
+        vector<thread> threads;
+        std::mutex mtx;
+        std::condition_variable cv;
 
-        auto cur = q.front();
-        q.pop();
+        auto t = [&]() {
+            while (true) {
+                unique_lock<mutex> lock(mtx);
+                
+                // Wait for either 30ms or until there are URLs in the queue
+                cv.wait_for(lock, 30ms, [&]() { return q.size(); });
 
-        lock.unlock();
+                if (q.empty())
+                    return;
 
-        const vector<string> urls = htmlParser.getUrls(cur);
+                // Retrieve and remove the front URL from the queue
+                auto cur = q.front();
+                q.pop();
 
-        lock.lock();
-        for (const string& url : urls) {
-          if (seen.count(url))
-            continue;
-          if (url.find(hostname) != string::npos) {
-            q.push(url);
-            seen.insert(url);
-          }
-        }
-        lock.unlock();
-        cv.notify_all();
-      }
-    };
+                lock.unlock();
 
-    for (int i = 0; i < nThreads; ++i)
-      threads.emplace_back(t);
+                // Fetch URLs from the current page using HtmlParser
+                const vector<string> urls = htmlParser.getUrls(cur);
 
-    for (std::thread& t : threads)
-      t.join();
+                lock.lock();
 
-    return {begin(seen), end(seen)};
-  }
+                // Process and filter URLs based on the hostname
+                for (const string& url : urls) {
+                    if (seen.count(url))
+                        continue;
 
- private:
-  string getHostname(const string& url) {
-    const int firstSlash = url.find_first_of('/');
-    const int thirdSlash = url.find_first_of('/', firstSlash + 2);
-    return url.substr(firstSlash + 2, thirdSlash - firstSlash - 2);
-  }
+                    if (url.find(hostname) != string::npos) {
+                        // Add valid URL to the queue and the set
+                        q.push(url);
+                        seen.insert(url);
+                    }
+                }
+
+                lock.unlock();
+
+                // Notify waiting threads that the queue may have new URLs
+                cv.notify_all();
+            }
+        };
+
+        // Create and start threads
+        for (int i = 0; i < nThreads; ++i)
+            threads.emplace_back(t);
+
+        // Wait for all threads to finish
+        for (std::thread& t : threads)
+            t.join();
+
+        // Return the set of unique crawled URLs
+        return {begin(seen), end(seen)};
+    }
+
+private:
+    // Extracts the hostname from a given URL
+    string getHostname(const string& url) {
+        const int firstSlash = url.find_first_of('/');
+        const int thirdSlash = url.find_first_of('/', firstSlash + 2);
+        return url.substr(firstSlash + 2, thirdSlash - firstSlash - 2);
+    }
 };
 
 
