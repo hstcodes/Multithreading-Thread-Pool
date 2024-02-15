@@ -1,0 +1,76 @@
+/*The program calculates the size of the file, divides it into blocks of a specified size (block_size), 
+and launches threads to process each block. The threads, upon receiving a signal, read their assigned block from the file, 
+simulate network transmission with a sleep (replace this with actual networking code), and notify the main thread upon completion.
+
+When you launch a task with std::async, it returns a std::future, and the associated work may be executed asynchronously on a separate thread. The number of threads and their behavior is managed by the implementation of std::async and the underlying threading library.
+
+Some implementations of std::async might reuse threads from a pool, while others might create new threads for each task.
+*/
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <future>
+#include <algorithm>
+
+const int block_size = 1024 * 1024; // 1 MB block size, adjust based on your requirements
+
+void readFileBlock(const std::string& fileName, std::size_t start, std::size_t end, std::vector<char>& buffer) {
+    std::ifstream file(fileName, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error opening file: " << fileName << std::endl;
+        return;
+    }
+
+    file.seekg(start);
+    buffer.resize(end - start);
+    file.read(buffer.data(), buffer.size());
+}
+
+void simulateNetworkTransmission(const std::vector<char>& buffer) {
+    // Simulate network transmission by sleeping
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // TODO: Code to send buffer over the network goes here
+}
+
+void sendBlock(const std::string& fileName, std::size_t start, std::size_t end) {
+    std::vector<char> buffer;
+    readFileBlock(fileName, start, end, buffer);
+    simulateNetworkTransmission(buffer);
+
+    std::cout << "Transmitted block from " << start << " to " << end << std::endl;
+}
+
+int main() {
+    std::string fileName = "your_large_file.dat"; // Replace with your file name
+    std::ifstream file(fileName, std::ios::binary | std::ios::ate);
+
+    if (!file) {
+        std::cerr << "Error opening file: " << fileName << std::endl;
+        return 1;
+    }
+
+    std::size_t fileSize = file.tellg();
+    std::size_t numBlocks = fileSize / block_size;
+
+    // Create a simple thread pool with std::async
+    std::vector<std::future<void>> futures;
+    for (std::size_t i = 0; i < numBlocks; ++i) {
+        std::size_t start = i * block_size;
+        std::size_t end = (i + 1) * block_size;
+        futures.push_back(std::async(std::launch::async, sendBlock, fileName, start, end));
+    }
+
+    // Handle the last block if file size is not a multiple of block size
+    if (fileSize % block_size != 0) {
+        std::size_t start = numBlocks * block_size;
+        std::size_t end = fileSize;
+        futures.push_back(std::async(std::launch::async, sendBlock, fileName, start, end));
+    }
+
+    // Wait for all tasks to finish
+    std::for_each(futures.begin(), futures.end(), [](std::future<void>& f) { f.get(); });
+
+    return 0;
+}
